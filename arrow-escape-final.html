@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Arrow Escape</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html,body{height:100%;margin:0}
+body{background:#2e9e4f;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#fff;display:flex;flex-direction:column;overflow:hidden;user-select:none;-webkit-user-select:none;touch-action:manipulation}
+#top{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;height:56px;flex:none}
+#lvl{font-weight:700;font-size:16px;background:rgba(255,255,255,.2);color:#fff;border:0;border-radius:12px;padding:8px 12px;cursor:pointer}
+#hearts{font-size:26px;letter-spacing:4px}
+#hint{width:48px;height:48px;border-radius:50%;border:0;background:#fff8c4;font-size:26px;cursor:pointer;animation:glow 1.4s ease-in-out infinite}
+@keyframes glow{0%,100%{box-shadow:0 0 6px 2px #ffe66b}50%{box-shadow:0 0 22px 9px #ffd400}}
+#main{flex:1;min-height:0;display:flex;justify-content:center;align-items:flex-start}
+canvas{display:block}
+#ad{flex:none;height:54px;background:#fff;color:#222;display:flex;align-items:center;justify-content:center;font-size:14px;border-top:2px solid #1b7a39;position:relative}
+#ad b{position:absolute;left:6px;top:4px;font-size:10px;background:#ffc107;padding:0 4px;border-radius:3px}
+.ov{position:fixed;inset:0;background:rgba(0,0,0,.72);display:none;align-items:center;justify-content:center;flex-direction:column;text-align:center;padding:20px;z-index:5}
+.ov.on{display:flex}
+.box{background:#fff;color:#222;border-radius:16px;padding:22px;max-width:320px;width:100%}
+.box h2{margin:0 0 8px}
+.btn{margin-top:14px;padding:12px 26px;border:0;border-radius:24px;background:#1d4ed8;color:#fff;font-size:16px;font-weight:700;cursor:pointer}
+.fake{background:#eee;border-radius:10px;height:130px;display:flex;align-items:center;justify-content:center;font-size:15px;margin:10px 0}
+#lg{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;max-height:52vh;overflow:auto;margin-top:10px}#lg button{border:0;border-radius:10px;padding:10px 0;font-weight:800;font-size:16px;background:#1d4ed8;color:#fff;cursor:pointer}#lg button:disabled{background:#ddd;color:#999;cursor:default}
+</style></head><body>
+<div id="top"><button id="lvl">Level 1 / 100</button><div id="hearts"></div><button id="hint" title="Hint">💡</button></div>
+<div id="main"><canvas id="c"></canvas></div>
+<div id="ad"><b>AD</b><span id="adt"></span></div>
+
+<div class="ov" id="adov"><div class="box"><h2>Ad playing</h2>
+<div class="fake">Video ad plays here</div><div id="cd">Hint in 5 seconds…</div></div></div>
+<div class="ov" id="lsel"><div class="box"><h2>Levels</h2><div id="lg"></div><button class="btn" id="lclose">CLOSE</button></div></div>
+<div class="ov" id="win"><div class="box"><h2 id="wh">🎉 Level Complete!</h2><p id="wp">All arrows are cleared.</p><button class="btn" id="next">NEXT LEVEL</button></div></div>
+<div class="ov" id="lose"><div class="box"><h2>💔 Out of lives</h2><p>Try again.</p><button class="btn" id="retry">RESTART</button></div></div>
+
+<script>
+const D=[[0,-1],[1,0],[0,1],[-1,0]];
+const cv=document.getElementById('c'),ctx=cv.getContext('2d');
+let level=1,lives=3,cols,rows,cell,occ,arrows,hintId=-1,over=false,adBusy=false,maxL=1;
+try{level=Math.min(100,parseInt(localStorage.getItem('ae_level'))||1);maxL=Math.min(100,parseInt(localStorage.getItem('ae_max'))||1)}catch(e){}
+maxL=Math.max(maxL,level);
+const $=id=>document.getElementById(id);
+const ads=["Promote your business here!","Cheap data plan – get it today","Download a new game","Your ad here"];
+let ai=0;function rotAd(){$('adt').textContent=ads[ai++%ads.length]}rotAd();setInterval(rotAd,5000);
+
+function hearts(){$('hearts').textContent='❤️'.repeat(lives)+'🖤'.repeat(3-lives)}
+function inb(x,y){return x>=0&&y>=0&&x<cols&&y<rows}
+function rnd(n){return Math.floor(Math.random()*n)}
+
+function start(){
+  over=false;hintId=-1;
+  $('lvl').textContent='Level '+level+' / 100';hearts();
+  const m=$('main');const W=Math.min(m.clientWidth,520),H=m.clientHeight;
+  cols=Math.min(10,5+Math.floor((level-1)/12));
+  cell=Math.floor(W/cols);rows=Math.max(5,Math.floor(H/cell));
+  cv.width=cell*cols;cv.height=cell*rows;
+  occ=Array.from({length:rows},()=>Array(cols).fill(-1));
+  arrows=[];
+  for(let t=0;t<4000;t++){
+    const x=rnd(cols),y=rnd(rows);if(occ[y][x]!==-1)continue;
+    const di=rnd(4),[dx,dy]=D[di];
+    const ray=new Set();let ok=true,cx=x+dx,cy=y+dy,r=0;
+    while(inb(cx,cy)){if(occ[cy][cx]!==-1){ok=false;break}ray.add(cx+','+cy);cx+=dx;cy+=dy;r++}
+    if(!ok)continue;
+    const bx=x-dx,by=y-dy;if(!inb(bx,by)||occ[by][bx]!==-1||ray.has(bx+','+by))continue;
+    const cells=[[x,y],[bx,by]];const len=2+rnd(Math.min(7,2+Math.floor(level/10)));
+    while(cells.length<len){
+      const [lx,ly]=cells[cells.length-1];const [px,py]=cells[cells.length-2];
+      let opts=D.map(d=>[lx+d[0],ly+d[1]]).filter(([a,b])=>inb(a,b)&&occ[b][a]===-1&&!ray.has(a+','+b)&&!cells.some(c=>c[0]===a&&c[1]===b));
+      if(!opts.length)break;
+      const st=opts.find(o=>o[0]-lx===lx-px&&o[1]-ly===ly-py);
+      cells.push(st&&Math.random()<.45?st:opts[rnd(opts.length)]);
+    }
+    cells.reverse();
+    const id=arrows.length;cells.forEach(([a,b])=>occ[b][a]=id);
+    const pts=cells.map(([a,b])=>[(a+.5)*cell,(b+.5)*cell]);
+    const K=r+cells.length+3;
+    for(let k=1;k<=K;k++)pts.push([(x+dx*k+.5)*cell,(y+dy*k+.5)*cell]);
+    const cum=[0];for(let i=1;i<pts.length;i++)cum.push(cum[i-1]+Math.hypot(pts[i][0]-pts[i-1][0],pts[i][1]-pts[i-1][1]));
+    const L=(cells.length-1)*cell;
+    arrows.push({cells,hx:x,hy:y,dx,dy,pts,cum,L,s:0,state:'idle',end:(r+.5)*cell+L+cell*.5,r});
+  }
+}
+
+function sample(a,f,t){
+  const out=[];const at=d=>{let i=1;while(i<a.cum.length-1&&a.cum[i]<d)i++;const u=(d-a.cum[i-1])/((a.cum[i]-a.cum[i-1])||1);return[a.pts[i-1][0]+(a.pts[i][0]-a.pts[i-1][0])*u,a.pts[i-1][1]+(a.pts[i][1]-a.pts[i-1][1])*u]};
+  out.push(at(f));for(let i=0;i<a.cum.length;i++)if(a.cum[i]>f&&a.cum[i]<t)out.push(a.pts[i]);out.push(at(t));return out;
+}
+function draw(now){
+  ctx.clearRect(0,0,cv.width,cv.height);
+  ctx.fillStyle='#000';
+  for(let y=0;y<rows;y++)for(let x=0;x<cols;x++){ctx.beginPath();ctx.arc((x+.5)*cell,(y+.5)*cell,cell*.07,0,7);ctx.fill()}
+  arrows.forEach((a,i)=>{
+    if(a.state==='gone')return;
+    const p=sample(a,a.s,a.s+a.L);
+    const bad=a.state==='bump'||a.state==='back';
+    ctx.save();
+    if(i===hintId){ctx.shadowColor='#ffe600';ctx.shadowBlur=14+10*Math.sin(now/180)}
+    ctx.strokeStyle=bad?'#e11d48':'#1d4ed8';ctx.fillStyle=ctx.strokeStyle;
+    ctx.lineWidth=cell*.2;ctx.lineCap='round';ctx.lineJoin='round';
+    ctx.beginPath();p.forEach(([x,y],k)=>k?ctx.lineTo(x,y):ctx.moveTo(x,y));ctx.stroke();
+    const [ex,ey]=p[p.length-1],dx=a.dx,dy=a.dy,w=cell*.2;
+    ctx.beginPath();ctx.moveTo(ex+dx*cell*.36,ey+dy*cell*.36);
+    ctx.lineTo(ex-dy*w,ey+dx*w);ctx.lineTo(ex+dy*w,ey-dx*w);ctx.closePath();ctx.fill();
+    ctx.restore();
+  });
+}
+let last=0;
+function loop(now){
+  const dt=Math.min(.05,(now-last)/1000||0);last=now;const sp=cell*13;
+  arrows&&arrows.forEach(a=>{
+    if(a.state==='exit'){a.s+=sp*dt;if(a.s>=a.end){a.state='gone';check()}}
+    else if(a.state==='bump'){a.s+=sp*dt;if(a.s>=a.tgt){a.s=a.tgt;a.state='back';hit()}}
+    else if(a.state==='back'){a.s-=sp*dt;if(a.s<=0){a.s=0;a.state='idle'}}
+  });
+  draw(now);requestAnimationFrame(loop);
+}
+function hit(){
+  if(over)return;lives--;hearts();
+  if(lives<=0){over=true;setTimeout(()=>$('lose').classList.add('on'),350)}
+}
+function check(){
+  if(!over&&arrows.every(a=>a.state==='gone')){over=true;const done=level>=100;maxL=Math.max(maxL,Math.min(100,level+1));try{localStorage.setItem('ae_level',String(done?1:level+1));localStorage.setItem('ae_max',String(maxL))}catch(e){}$('wh').textContent=done?'🏆 Congratulations!':'🎉 Level Complete!';$('wp').textContent=done?'You completed all 100 levels.':'All arrows are cleared.';$('next').textContent=done?'START FROM LEVEL 1':'NEXT LEVEL';setTimeout(()=>$('win').classList.add('on'),250)}
+}
+function blockAt(a){
+  for(let k=1;;k++){const x=a.hx+a.dx*k,y=a.hy+a.dy*k;if(!inb(x,y))return 0;if(occ[y][x]!==-1)return k}
+}
+cv.addEventListener('pointerdown',e=>{
+  if(over)return;
+  const b=cv.getBoundingClientRect();
+  const x=Math.floor((e.clientX-b.left)/b.width*cols),y=Math.floor((e.clientY-b.top)/b.height*rows);
+  if(!inb(x,y))return;const id=occ[y][x];if(id<0)return;
+  const a=arrows[id];if(a.state!=='idle')return;
+  if(hintId===id)hintId=-1;
+  const j=blockAt(a);
+  if(j===0){a.state='exit';a.cells.forEach(([cx,cy])=>occ[cy][cx]=-1)}
+  else{a.state='bump';a.tgt=Math.max(0,(j-1)*cell+cell*.1)}
+});
+$('hint').onclick=()=>{
+  if(over||adBusy)return;adBusy=true;
+  // Add a real ad SDK (e.g. AdMob/AdSense rewarded ad) here. This is a demo ad.
+  $('adov').classList.add('on');let n=5;$('cd').textContent='Hint in '+n+' seconds…';
+  const iv=setInterval(()=>{n--;$('cd').textContent=n>0?'Hint in '+n+' seconds…':'Done!';
+    if(n<=0){clearInterval(iv);$('adov').classList.remove('on');adBusy=false;
+      const c=arrows.map((a,i)=>[a,i]).filter(([a])=>a.state==='idle'&&blockAt(a)===0);
+      if(c.length)hintId=c[rnd(c.length)][1]}},1000);
+};
+$('next').onclick=()=>{$('win').classList.remove('on');if(level>=100){level=1;lives=3}else level++;start()};
+$('retry').onclick=()=>{$('lose').classList.remove('on');lives=3;start()};
+$('lvl').onclick=()=>{if(adBusy)return;$('lg').innerHTML='';for(let i=1;i<=100;i++){const b=document.createElement('button');b.textContent=i;b.disabled=i>maxL;b.onclick=()=>{level=i;lives=3;try{localStorage.setItem('ae_level',String(i))}catch(e){}$('lsel').classList.remove('on');$('win').classList.remove('on');$('lose').classList.remove('on');start()};$('lg').appendChild(b)}$('lsel').classList.add('on')};
+$('lclose').onclick=()=>$('lsel').classList.remove('on');
+addEventListener('resize',()=>{if(!over)start()});
+start();requestAnimationFrame(loop);
+</script></body></html>
